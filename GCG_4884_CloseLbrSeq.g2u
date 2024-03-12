@@ -1,0 +1,76 @@
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+v.Local.sJob.Declare(String)
+v.Local.sSuffix.Declare(String)
+v.Local.sSeq.Declare(String)
+v.Local.sDate.Declare(String)
+v.Local.sSQL.Declare(String)
+v.Local.icount.Declare(long)
+f.Intrinsic.Control.Try
+
+'if Scan hook for Job, then set GLobal Variable as J. This hook only fires when it is a Work Order scan with prefix $%. Employee Scans are %$
+f.Intrinsic.Control.If(v.Caller.Hook,=,15754)
+	'set global passed variable to control post scan hook only when it is a JOB
+	v.Passed.global.Set("J")
+	f.Intrinsic.Control.End
+f.Intrinsic.Control.ElseIf(v.Caller.Hook,=,15753) 
+	v.Passed.global.Set("")
+	f.Intrinsic.Control.End
+f.Intrinsic.Control.Endif
+
+'on post scan hook, check if it is a job and assign variables.
+f.Intrinsic.Control.If(v.Caller.Hook,=,15755)
+	f.Intrinsic.Control.If(v.Passed.global.Trim,=,"J")
+		v.Local.sJob.Set(v.Passed.009990)
+		v.Local.sSuffix.Set(v.Passed.009991)
+		v.Local.sSeq.Set(v.Passed.009992)
+	f.Intrinsic.Control.EndIf
+'or on Start job hook, assign variables.
+f.Intrinsic.Control.ElseIf(v.Caller.Hook,=,15935)
+	v.Local.sJob.Set(v.Passed.009000)
+	v.Local.sSuffix.Set(v.Passed.009001)
+	v.Local.sSeq.Set(v.Passed.009002)
+f.Intrinsic.Control.EndIf
+f.ODBC.Connection!conx.openconnection(v.Ambient.PDSN,v.Ambient.PUser,v.Ambient.PPass)
+
+
+'check for there are any open sequences that is less than current sequence
+f.Intrinsic.String.Build("Select Job, Suffix, Seq from V_JOB_OPERATIONS where LMO = 'L' and flag_closed <> 'Y' and job = '{0}' and suffix = '{1}' and SEQ < '{2}'",v.Local.sJob,v.Local.sSuffix,v.Local.sSeq,v.Local.sSQL)
+f.Data.DataTable.CreateFromSQL("CloseDT","Conx",v.Local.sSQL)
+f.Intrinsic.Control.If(v.datatable.CloseDT.RowCount,>,0)
+	f.Intrinsic.String.Format(v.Ambient.Date,"yymmdd",v.Local.sdate)
+
+	f.Intrinsic.Control.For(v.Local.icount,0,v.DataTable.CloseDT.RowCount--,1)
+		'update close flags for any open sequence that is less than current sequence
+		f.Intrinsic.String.Build("Update JOB_OPERATIONS set flag_closed = 'Y',date_completed = '{0}'  where job = '{1}' and suffix = '{2}' and SEQ = '{3}' and LMO = 'L'",v.Local.sdate,v.DataTable.CloseDT(v.Local.icount).Job!fieldval,v.DataTable.CloseDT(v.Local.icount).Suffix!fieldval,v.DataTable.CloseDT(v.Local.icount).SEQ!fieldval,v.Local.sSQL)
+		f.ODBC.Connection!conx.Execute(v.Local.sSQL)
+	f.Intrinsic.Control.Next(v.Local.icount)
+	
+f.Intrinsic.Control.EndIf
+
+
+f.Intrinsic.Control.CallSub(UnLoadAll)
+
+
+f.Intrinsic.Control.catch
+f.Intrinsic.Control.CallSub(catching,"sub",v.Ambient.CurrentSubroutine,"errorno",v.Ambient.ErrorNumber,"errordesc",v.Ambient.ErrorDescription)
+f.Intrinsic.Control.EndTry
+
+
+Program.Sub.Main.End
+
+Program.Sub.catching.Start
+v.Local.sError.declare(string)
+v.Local.sDate.Declare(String)
+
+Function.Intrinsic.String.Concat(v.Ambient.Now,": Project: GCG_4884_CloseLbrSeq.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",v.Args.sub,V.Ambient.NewLine,"Error Occurred ",V.Args.errorno," with description ",V.args.errordesc,V.Local.sError)
+f.Intrinsic.UI.Msgbox(v.Local.sError)
+f.Intrinsic.Control.CallSub(UnLoadAll)
+Program.Sub.catching.End
+
+Program.Sub.UnLoadAll.Start
+f.ODBC.Connection!conx.Close
+f.Intrinsic.Control.End
+Program.Sub.UnLoadAll.End
